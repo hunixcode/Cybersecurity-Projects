@@ -31,14 +31,14 @@
     referrer: document.referrer || null
   };
   try {
-    await fetch({{.FingerprintURL | js}}, {
+    await fetch({{.FingerprintURL}}, {
       method: 'POST',
       body: JSON.stringify(fp),
       headers: {'Content-Type': 'application/json'},
       keepalive: true
     });
   } catch (_) { /* swallow */ }
-  window.location.replace({{.Destination | js}});
+  window.location.replace({{.Destination}});
 })();
 </script>
 </body>

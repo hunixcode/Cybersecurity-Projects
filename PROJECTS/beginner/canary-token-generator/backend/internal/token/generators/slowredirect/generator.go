@@ -38,11 +38,19 @@ const (
 	fingerprintPathSuffix = "/fingerprint"
 	metadataDestKey       = "destination_url"
 
-	nilTokenBody = "Not Found"
+	schemeHTTP  = "http://"
+	schemeHTTPS = "https://"
+
+	enumerationDecoyDestination = "/"
 )
 
-var ErrMissingDestination = errors.New(
-	"slowredirect: destination_url missing from token metadata",
+var (
+	ErrMissingDestination = errors.New(
+		"slowredirect: destination_url missing from token metadata",
+	)
+	ErrInvalidDestinationScheme = errors.New(
+		"slowredirect: destination_url must use http:// or https:// scheme",
+	)
 )
 
 //go:embed template.html
@@ -86,15 +94,11 @@ func (g *Generator) Trigger(
 	r *http.Request,
 ) (*event.Event, *generators.TriggerResponse, error) {
 	if t == nil {
-		return nil, &generators.TriggerResponse{
-			StatusCode:  http.StatusNotFound,
-			ContentType: contentTypeHTML,
-			Body:        []byte(nilTokenBody),
-			ExtraHeaders: map[string]string{
-				headerCacheControl: cacheControlNoStore,
-				headerPragma:       pragmaNoCache,
-			},
-		}, nil
+		resp, err := renderDecoyResponse()
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, resp, nil
 	}
 
 	dest, err := extractDestination(t.Metadata)
@@ -102,24 +106,9 @@ func (g *Generator) Trigger(
 		return nil, nil, err
 	}
 
-	var body bytes.Buffer
-	data := pageData{
-		Destination:    dest,
-		FingerprintURL: triggerPathPrefix + t.ID + fingerprintPathSuffix,
-	}
-	if err := pageTemplate.Execute(&body, data); err != nil {
-		return nil, nil, fmt.Errorf("render slowredirect template: %w", err)
-	}
-
-	resp := &generators.TriggerResponse{
-		StatusCode:  http.StatusOK,
-		ContentType: contentTypeHTML,
-		Body:        body.Bytes(),
-		ExtraHeaders: map[string]string{
-			headerCSP:          cspOverride,
-			headerCacheControl: cacheControlNoStore,
-			headerPragma:       pragmaNoCache,
-		},
+	resp, err := renderResponse(dest, t.ID)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	evt := &event.Event{
@@ -129,6 +118,41 @@ func (g *Generator) Trigger(
 		Referer:   optionalHeader(r.Header.Get(headerReferer)),
 	}
 	return evt, resp, nil
+}
+
+func renderResponse(
+	destination, tokenID string,
+) (*generators.TriggerResponse, error) {
+	return renderWith(pageData{
+		Destination:    destination,
+		FingerprintURL: triggerPathPrefix + tokenID + fingerprintPathSuffix,
+	})
+}
+
+func renderDecoyResponse() (*generators.TriggerResponse, error) {
+	return renderWith(pageData{
+		Destination:    enumerationDecoyDestination,
+		FingerprintURL: enumerationDecoyDestination,
+	})
+}
+
+func renderWith(
+	data pageData,
+) (*generators.TriggerResponse, error) {
+	var body bytes.Buffer
+	if err := pageTemplate.Execute(&body, data); err != nil {
+		return nil, fmt.Errorf("render slowredirect template: %w", err)
+	}
+	return &generators.TriggerResponse{
+		StatusCode:  http.StatusOK,
+		ContentType: contentTypeHTML,
+		Body:        body.Bytes(),
+		ExtraHeaders: map[string]string{
+			headerCSP:          cspOverride,
+			headerCacheControl: cacheControlNoStore,
+			headerPragma:       pragmaNoCache,
+		},
+	}, nil
 }
 
 func extractDestination(metadata json.RawMessage) (string, error) {
@@ -147,8 +171,14 @@ func extractDestination(metadata json.RawMessage) (string, error) {
 	if err := json.Unmarshal(raw, &dest); err != nil {
 		return "", fmt.Errorf("parse destination_url: %w", err)
 	}
-	if strings.TrimSpace(dest) == "" {
+	dest = strings.TrimSpace(dest)
+	if dest == "" {
 		return "", ErrMissingDestination
+	}
+	lower := strings.ToLower(dest)
+	if !strings.HasPrefix(lower, schemeHTTP) &&
+		!strings.HasPrefix(lower, schemeHTTPS) {
+		return "", ErrInvalidDestinationScheme
 	}
 	return dest, nil
 }

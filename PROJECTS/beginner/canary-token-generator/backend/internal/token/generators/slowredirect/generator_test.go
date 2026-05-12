@@ -109,26 +109,32 @@ func TestGenerate_RejectsMissingDestination(t *testing.T) {
 	cases := []struct {
 		name     string
 		metadata json.RawMessage
+		wantErr  error
 	}{
 		{
 			name:     "empty metadata",
 			metadata: json.RawMessage(``),
+			wantErr:  slowredirect.ErrMissingDestination,
 		},
 		{
 			name:     "empty object",
 			metadata: json.RawMessage(`{}`),
+			wantErr:  slowredirect.ErrMissingDestination,
 		},
 		{
 			name:     "empty destination string",
 			metadata: json.RawMessage(`{"destination_url":""}`),
+			wantErr:  slowredirect.ErrMissingDestination,
 		},
 		{
 			name:     "whitespace destination",
 			metadata: json.RawMessage(`{"destination_url":"   "}`),
+			wantErr:  slowredirect.ErrMissingDestination,
 		},
 		{
 			name:     "wrong key",
 			metadata: json.RawMessage(`{"redirect":"https://example.com"}`),
+			wantErr:  slowredirect.ErrMissingDestination,
 		},
 	}
 
@@ -146,7 +152,72 @@ func TestGenerate_RejectsMissingDestination(t *testing.T) {
 				tok,
 				"https://canary.example.com",
 			)
-			require.Error(t, err)
+			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
+}
+
+func TestGenerate_RejectsDangerousDestinationSchemes(t *testing.T) {
+	cases := []struct {
+		name        string
+		destination string
+	}{
+		{name: "javascript: scheme", destination: "javascript:alert(1)"},
+		{
+			name:        "javascript: scheme with mixed case",
+			destination: "JavaScript:alert(1)",
+		},
+		{
+			name:        "data: URI",
+			destination: "data:text/html;base64,PHNjcmlwdD4=",
+		},
+		{name: "file: scheme", destination: "file:///etc/passwd"},
+		{name: "vbscript: scheme", destination: "vbscript:msgbox(1)"},
+		{name: "no scheme", destination: "example.com/path"},
+		{name: "relative path", destination: "/path"},
+		{name: "protocol-relative", destination: "//example.com"},
+	}
+
+	g := slowredirect.New()
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			tok := newSlowRedirectToken(t, "schemecheck1", tc.destination)
+			_, err := g.Generate(
+				context.Background(),
+				tok,
+				"https://canary.example.com",
+			)
+			require.ErrorIs(
+				t,
+				err,
+				slowredirect.ErrInvalidDestinationScheme,
+				"destination scheme %q must be rejected to keep the noscript meta-refresh from following dangerous URIs when JS is disabled",
+				tc.destination,
+			)
+		})
+	}
+}
+
+func TestGenerate_AcceptsHTTPAndHTTPSSchemes(t *testing.T) {
+	g := slowredirect.New()
+	cases := []string{
+		"http://news.example.com",
+		"https://news.example.com",
+		"HTTP://news.example.com",
+		"HtTpS://news.example.com",
+	}
+	for _, dest := range cases {
+		dest := dest
+		t.Run(dest, func(t *testing.T) {
+			tok := newSlowRedirectToken(t, "schemeok0001", dest)
+			art, err := g.Generate(
+				context.Background(),
+				tok,
+				"https://canary.example.com",
+			)
+			require.NoError(t, err)
+			require.Equal(t, dest, art.DestinationURL)
 		})
 	}
 }
@@ -241,6 +312,43 @@ func TestTrigger_RendersHTMLWithEscapedDestination(t *testing.T) {
 	})
 }
 
+func TestTrigger_DestinationRoundtripsThroughJSStringDecode(t *testing.T) {
+	g := slowredirect.New()
+	const dest = "https://news.example.com/article?utm_source=newsletter&utm_medium=email&id=42"
+
+	tok := newSlowRedirectToken(t, "rndtrip001", dest)
+	r := httptest.NewRequest(http.MethodGet, "/c/rndtrip001", nil)
+
+	_, resp, err := g.Trigger(context.Background(), tok, r)
+	require.NoError(t, err)
+	body := string(resp.Body)
+
+	require.NotContains(
+		t,
+		body,
+		`\\u003D`,
+		"double-backslash unicode escape means {{...|js}} double-ran the JS escaper; browsers would see literal \\u003D text instead of '='",
+	)
+	require.NotContains(
+		t,
+		body,
+		`\\u0026`,
+		"double-backslash unicode escape would corrupt '&' in real query strings",
+	)
+	require.Contains(
+		t,
+		body,
+		`=`,
+		"html/template auto-escape should emit single-backslash \\u003D so JS parser decodes to '='",
+	)
+	require.Contains(
+		t,
+		body,
+		`&`,
+		"html/template auto-escape should emit single-backslash \\u0026 for '&'",
+	)
+}
+
 func TestTrigger_SetsCSPOverride(t *testing.T) {
 	g := slowredirect.New()
 	tok := newSlowRedirectToken(t, "cspok001", "https://news.example.com")
@@ -301,16 +409,52 @@ func TestTrigger_TokenNotFound_ReturnsNilEvent(t *testing.T) {
 		err,
 		"nil-token path must not error (spec §8.5 defense-in-depth)",
 	)
-	require.NotNil(
-		t,
-		resp,
-		"nil-token path must still return a response so the trigger handler does not panic",
-	)
+	require.NotNil(t, resp)
 	require.Nil(
 		t,
 		evt,
 		"nil-token path returns nil event so the handler cannot accidentally insert an event row with empty TokenID",
 	)
+	require.Equal(
+		t,
+		http.StatusOK,
+		resp.StatusCode,
+		"nil-token path must return 200 — spec §8.5 forbids 404 on /c/* to prevent token-existence enumeration",
+	)
+	require.Equal(
+		t,
+		contentTypeHTML,
+		resp.ContentType,
+		"nil-token response must be indistinguishable in shape from a real slowredirect response",
+	)
+	require.NotEmpty(t, resp.Body)
+}
+
+func TestTrigger_TokenNotFound_HasSameResponseShapeAsValidToken(t *testing.T) {
+	g := slowredirect.New()
+	r := httptest.NewRequest(http.MethodGet, "/c/anything", nil)
+
+	tok := newSlowRedirectToken(t, "shapecmp001", "https://news.example.com")
+	_, validResp, err := g.Trigger(context.Background(), tok, r)
+	require.NoError(t, err)
+
+	_, decoyResp, err := g.Trigger(context.Background(), nil, r)
+	require.NoError(t, err)
+
+	require.Equal(t, validResp.StatusCode, decoyResp.StatusCode)
+	require.Equal(t, validResp.ContentType, decoyResp.ContentType)
+	require.Equal(
+		t,
+		validResp.ExtraHeaders["Content-Security-Policy"],
+		decoyResp.ExtraHeaders["Content-Security-Policy"],
+	)
+	require.Contains(
+		t,
+		string(decoyResp.Body),
+		"<noscript>",
+		"decoy body must keep the noscript+script structure so a scanner cannot fingerprint token presence by body shape",
+	)
+	require.Contains(t, string(decoyResp.Body), "<script>")
 }
 
 func TestTrigger_BodyIsIndependentCopyPerCall(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -18,9 +19,11 @@ import (
 )
 
 const (
-	fingerprintWindow   = 30 * time.Second
-	fingerprintMaxBytes = 64 * 1024
-	urlParamTokenID     = "id"
+	fingerprintWindow     = 30 * time.Second
+	fingerprintMaxBytes   = 64 * 1024
+	urlParamTokenID       = "id"
+	headerContentType     = "Content-Type"
+	contentTypeJSONPrefix = "application/json"
 )
 
 type FingerprintAttacher interface {
@@ -49,6 +52,14 @@ func (h *FingerprintHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	tokenID := chi.URLParam(r, urlParamTokenID)
 	if tokenID == "" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	if !strings.HasPrefix(
+		strings.ToLower(r.Header.Get(headerContentType)),
+		contentTypeJSONPrefix,
+	) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
