@@ -9,13 +9,13 @@ import (
 )
 
 type CreateRequest struct {
-	Type          Type            `json:"type" validate:"required,oneof=webbug slowredirect docx pdf kubeconfig envfile mysql"`
-	Memo          string          `json:"memo" validate:"max=256"`
-	Filename      string          `json:"filename" validate:"max=128"`
-	AlertChannel  AlertChannel    `json:"alert_channel" validate:"required,oneof=telegram webhook"`
-	TelegramBot   string          `json:"telegram_bot" validate:"required_if=AlertChannel telegram"`
-	TelegramChat  string          `json:"telegram_chat" validate:"required_if=AlertChannel telegram"`
-	WebhookURL    string          `json:"webhook_url" validate:"required_if=AlertChannel webhook,omitempty,url"`
+	Type          Type            `json:"type"                  validate:"required,oneof=webbug slowredirect docx pdf kubeconfig envfile mysql"`
+	Memo          string          `json:"memo"                  validate:"max=256"`
+	Filename      string          `json:"filename"              validate:"max=128"`
+	AlertChannel  AlertChannel    `json:"alert_channel"         validate:"required,oneof=telegram webhook"`
+	TelegramBot   string          `json:"telegram_bot"          validate:"required_if=AlertChannel telegram"`
+	TelegramChat  string          `json:"telegram_chat"         validate:"required_if=AlertChannel telegram"`
+	WebhookURL    string          `json:"webhook_url"           validate:"required_if=AlertChannel webhook,omitempty,url"`
 	Metadata      json.RawMessage `json:"metadata"`
 	TurnstileResp string          `json:"cf_turnstile_response" validate:"required"`
 }

@@ -41,12 +41,21 @@ func TestBuild_PendingTypesNotYetRegistered(t *testing.T) {
 	}
 	for _, tt := range pending {
 		_, ok := reg[tt]
-		require.False(t, ok,
-			"type %q is not yet registered (subsequent phases will add it); registry must not claim it", tt)
+		require.False(
+			t,
+			ok,
+			"type %q is not yet registered (subsequent phases will add it); registry must not claim it",
+			tt,
+		)
 	}
 }
 
 func TestBuild_OnlyExpectedTypesPresentInPhase2(t *testing.T) {
 	reg := registry.Build(registry.Config{BaseURL: testBaseURL})
-	require.Len(t, reg, 1, "Phase 2 registers exactly one generator (webbug); other phases append")
+	require.Len(
+		t,
+		reg,
+		1,
+		"Phase 2 registers exactly one generator (webbug); other phases append",
+	)
 }

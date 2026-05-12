@@ -24,7 +24,10 @@ import (
 	"github.com/CarterPerez-dev/cybersecurity-projects/canary-token-generator/backend/internal/token"
 )
 
-const drainDelay = 5 * time.Second
+const (
+	drainDelay         = 5 * time.Second
+	shutdownGraceExtra = 5 * time.Second
+)
 
 func main() {
 	configPath := flag.String("config", "config.yaml", "path to config file")
@@ -37,7 +40,11 @@ func main() {
 }
 
 func run(configPath string) error {
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(
+		context.Background(),
+		syscall.SIGINT,
+		syscall.SIGTERM,
+	)
 	defer stop()
 
 	cfg, err := config.Load(configPath)
@@ -52,14 +59,7 @@ func run(configPath string) error {
 		"environment", cfg.App.Environment,
 	)
 
-	var telemetry *core.Telemetry
-	if cfg.Otel.Enabled {
-		if t, telErr := core.NewTelemetry(ctx, cfg.Otel, cfg.App); telErr != nil {
-			logger.Warn("telemetry init failed", "error", telErr)
-		} else {
-			telemetry = t
-		}
-	}
+	telemetry := initTelemetry(ctx, cfg, logger)
 
 	db, err := core.NewDatabase(ctx, cfg.Database)
 	if err != nil {
@@ -67,15 +67,13 @@ func run(configPath string) error {
 	}
 	logger.Info("database connected")
 
-	if err := core.RunMigrations(db.SQLDB()); err != nil {
+	if err = core.RunMigrations(db.SQLDB()); err != nil {
 		return fmt.Errorf("run migrations: %w", err)
 	}
 	logger.Info("migrations applied")
 
-	tokenRepo := token.NewRepository(db.DB)
-	eventRepo := event.NewRepository(db.DB)
-	_ = tokenRepo
-	_ = eventRepo
+	_ = token.NewRepository(db.DB)
+	_ = event.NewRepository(db.DB)
 
 	rdb, err := core.NewRedis(ctx, cfg.Redis)
 	if err != nil {
@@ -84,7 +82,43 @@ func run(configPath string) error {
 	logger.Info("redis connected")
 
 	healthH := health.NewHandler(db, rdb)
+	srv := mountRouter(cfg, logger, rdb, healthH)
 
+	errChan := make(chan error, 1)
+	go func() { errChan <- srv.Start() }()
+
+	select {
+	case startErr := <-errChan:
+		return startErr
+	case <-ctx.Done():
+		logger.Info("shutdown signal received")
+	}
+
+	return gracefulShutdown(cfg, logger, srv, telemetry, rdb, db)
+}
+
+func initTelemetry(
+	ctx context.Context,
+	cfg *config.Config,
+	logger *slog.Logger,
+) *core.Telemetry {
+	if !cfg.Otel.Enabled {
+		return nil
+	}
+	t, err := core.NewTelemetry(ctx, cfg.Otel, cfg.App)
+	if err != nil {
+		logger.Warn("telemetry init failed", "error", err)
+		return nil
+	}
+	return t
+}
+
+func mountRouter(
+	cfg *config.Config,
+	logger *slog.Logger,
+	rdb *core.Redis,
+	healthH *health.Handler,
+) *server.Server {
 	srv := server.New(server.Config{
 		ServerConfig:  cfg.Server,
 		HealthHandler: healthH,
@@ -96,7 +130,10 @@ func run(configPath string) error {
 	r.Use(middleware.Logger(logger))
 	r.Use(
 		middleware.NewRateLimiter(rdb.Client, middleware.RateLimitConfig{
-			Limit:    middleware.PerMinute(cfg.RateLimit.Requests, cfg.RateLimit.Burst),
+			Limit: middleware.PerMinute(
+				cfg.RateLimit.Requests,
+				cfg.RateLimit.Burst,
+			),
 			FailOpen: true,
 		}).Handler,
 	)
@@ -104,29 +141,31 @@ func run(configPath string) error {
 	r.Use(middleware.CORS(cfg.CORS))
 
 	healthH.RegisterRoutes(r)
+	r.Route("/api", func(_ chi.Router) {})
+	return srv
+}
 
-	r.Route("/api", func(_ chi.Router) {
-	})
-
-	errChan := make(chan error, 1)
-	go func() { errChan <- srv.Start() }()
-
-	select {
-	case err := <-errChan:
-		return err
-	case <-ctx.Done():
-		logger.Info("shutdown signal received")
-	}
-
-	shutdownCtx, cancel := context.WithTimeout(context.Background(),
-		cfg.Server.ShutdownTimeout+drainDelay+5*time.Second)
+func gracefulShutdown(
+	cfg *config.Config,
+	logger *slog.Logger,
+	srv *server.Server,
+	telemetry *core.Telemetry,
+	rdb *core.Redis,
+	db *core.Database,
+) error {
+	shutdownCtx, cancel := context.WithTimeout(
+		context.Background(),
+		cfg.Server.ShutdownTimeout+drainDelay+shutdownGraceExtra,
+	)
 	defer cancel()
 
 	if err := srv.Shutdown(shutdownCtx, drainDelay); err != nil {
 		logger.Error("server shutdown error", "error", err)
 	}
 	if telemetry != nil {
-		_ = telemetry.Shutdown(shutdownCtx)
+		if err := telemetry.Shutdown(shutdownCtx); err != nil {
+			logger.Error("telemetry shutdown error", "error", err)
+		}
 	}
 	if err := rdb.Close(); err != nil {
 		logger.Error("redis close error", "error", err)

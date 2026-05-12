@@ -40,6 +40,14 @@ type TriggerResponse struct {
 
 type Generator interface {
 	Type() token.Type
-	Generate(ctx context.Context, t *token.Token, baseURL string) (Artifact, error)
-	Trigger(ctx context.Context, t *token.Token, r *http.Request) (*event.Event, *TriggerResponse, error)
+	Generate(
+		ctx context.Context,
+		t *token.Token,
+		baseURL string,
+	) (Artifact, error)
+	Trigger(
+		ctx context.Context,
+		t *token.Token,
+		r *http.Request,
+	) (*event.Event, *TriggerResponse, error)
 }

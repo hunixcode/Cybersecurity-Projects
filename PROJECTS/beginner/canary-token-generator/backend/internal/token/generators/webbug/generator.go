@@ -34,14 +34,22 @@ func New() *Generator { return &Generator{} }
 
 func (g *Generator) Type() token.Type { return token.TypeWebbug }
 
-func (g *Generator) Generate(_ context.Context, t *token.Token, baseURL string) (generators.Artifact, error) {
+func (g *Generator) Generate(
+	_ context.Context,
+	t *token.Token,
+	baseURL string,
+) (generators.Artifact, error) {
 	return generators.Artifact{
 		Kind: generators.KindURL,
 		URL:  strings.TrimRight(baseURL, "/") + triggerPathPrefix + t.ID,
 	}, nil
 }
 
-func (g *Generator) Trigger(_ context.Context, t *token.Token, r *http.Request) (*event.Event, *generators.TriggerResponse, error) {
+func (g *Generator) Trigger(
+	_ context.Context,
+	t *token.Token,
+	r *http.Request,
+) (*event.Event, *generators.TriggerResponse, error) {
 	tokenID := ""
 	if t != nil {
 		tokenID = t.ID

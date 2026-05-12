@@ -36,7 +36,11 @@ func NewTestDB(t *testing.T) *sql.DB {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_ = pgContainer.Terminate(context.Background())
+		if termErr := pgContainer.Terminate(
+			context.Background(),
+		); termErr != nil {
+			t.Logf("postgres container terminate: %v", termErr)
+		}
 	})
 
 	connStr, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
@@ -46,7 +50,9 @@ func NewTestDB(t *testing.T) *sql.DB {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_ = db.Close()
+		if closeErr := db.Close(); closeErr != nil {
+			t.Logf("db close: %v", closeErr)
+		}
 	})
 
 	require.NoError(t, db.Ping())

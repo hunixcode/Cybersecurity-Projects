@@ -29,12 +29,18 @@ func TestTransparentGIF_Length(t *testing.T) {
 }
 
 func TestTransparentGIF_MagicBytes(t *testing.T) {
-	require.True(t,
+	require.True(
+		t,
 		bytes.HasPrefix(pixel.TransparentGIF, gif89aMagic),
-		"expected GIF89a magic prefix, got % x", pixel.TransparentGIF[:len(gif89aMagic)],
+		"expected GIF89a magic prefix, got % x",
+		pixel.TransparentGIF[:len(gif89aMagic)],
 	)
-	require.Equal(t, gifTrailer, pixel.TransparentGIF[len(pixel.TransparentGIF)-1],
-		"expected trailing GIF terminator 0x3B")
+	require.Equal(
+		t,
+		gifTrailer,
+		pixel.TransparentGIF[len(pixel.TransparentGIF)-1],
+		"expected trailing GIF terminator 0x3B",
+	)
 }
 
 func TestTransparentGIF_DecodesAsImageGIF(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -50,7 +51,12 @@ func (r *Repository) Insert(ctx context.Context, e *Event) error {
 	if err != nil {
 		return fmt.Errorf("prepare insert event: %w", err)
 	}
-	defer stmt.Close()
+	defer func() {
+		if cerr := stmt.Close(); cerr != nil {
+			slog.WarnContext(ctx, "close prepared stmt",
+				"op", "insert_event", "error", cerr)
+		}
+	}()
 
 	if err := stmt.GetContext(ctx, e, e); err != nil {
 		return fmt.Errorf("insert event: %w", err)
@@ -90,7 +96,14 @@ func (r *Repository) ListByToken(
            LIMIT $3`
 
 	var events []Event
-	err := r.db.SelectContext(ctx, &events, q, tokenID, opts.Cursor, opts.Limit+1)
+	err := r.db.SelectContext(
+		ctx,
+		&events,
+		q,
+		tokenID,
+		opts.Cursor,
+		opts.Limit+1,
+	)
 	if err != nil {
 		return ListResult{}, fmt.Errorf("list events: %w", err)
 	}
@@ -112,7 +125,10 @@ func (r *Repository) ListByToken(
 	}, nil
 }
 
-func (r *Repository) CountByToken(ctx context.Context, tokenID string) (int64, error) {
+func (r *Repository) CountByToken(
+	ctx context.Context,
+	tokenID string,
+) (int64, error) {
 	var n int64
 	err := r.db.GetContext(ctx, &n,
 		`SELECT COUNT(*) FROM events WHERE token_id = $1`, tokenID)
@@ -123,7 +139,10 @@ func (r *Repository) CountByToken(ctx context.Context, tokenID string) (int64, e
 }
 
 func (r *Repository) AttachFingerprint(
-	ctx context.Context, tokenID, sourceIP string, fingerprint json.RawMessage, window time.Duration,
+	ctx context.Context,
+	tokenID, sourceIP string,
+	fingerprint json.RawMessage,
+	window time.Duration,
 ) error {
 	q := `
 UPDATE events
@@ -136,8 +155,14 @@ UPDATE events
       ORDER BY id DESC
       LIMIT 1
  )`
-	res, err := r.db.ExecContext(ctx, q,
-		tokenID, sourceIP, []byte(fingerprint), fmt.Sprintf("%d milliseconds", window.Milliseconds()))
+	res, err := r.db.ExecContext(
+		ctx,
+		q,
+		tokenID,
+		sourceIP,
+		[]byte(fingerprint),
+		fmt.Sprintf("%d milliseconds", window.Milliseconds()),
+	)
 	if err != nil {
 		return fmt.Errorf("attach fingerprint: %w", err)
 	}
@@ -172,7 +197,10 @@ UPDATE events
 	return nil
 }
 
-func (r *Repository) PruneToLimit(ctx context.Context, perTokenLimit int) (int64, error) {
+func (r *Repository) PruneToLimit(
+	ctx context.Context,
+	perTokenLimit int,
+) (int64, error) {
 	if perTokenLimit <= 0 {
 		return 0, errors.New("perTokenLimit must be positive")
 	}

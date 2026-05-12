@@ -72,23 +72,26 @@ linters:
     gosec:
       excludes:
         - G104
+        - G706
 
     sloglint:
       no-mixed-args: true
       kv-only: true
       context: all
 
+  exclusions:
+    paths:
+      - vendor
+      - testdata
+    rules:
+      - path: _test\.go
+        linters:
+          - funlen
+          - dupl
+          - goconst
+
 issues:
   max-same-issues: 50
-  exclude-dirs:
-    - vendor
-    - testdata
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - funlen
-        - dupl
-        - goconst
 
 
 formatters:

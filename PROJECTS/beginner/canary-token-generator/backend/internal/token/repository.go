@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -41,7 +42,12 @@ func (r *Repository) Insert(ctx context.Context, t *Token) error {
 	if err != nil {
 		return fmt.Errorf("prepare insert token: %w", err)
 	}
-	defer stmt.Close()
+	defer func() {
+		if cerr := stmt.Close(); cerr != nil {
+			slog.WarnContext(ctx, "close prepared stmt",
+				"op", "insert_token", "error", cerr)
+		}
+	}()
 
 	if err := stmt.GetContext(ctx, t, t); err != nil {
 		return fmt.Errorf("insert token: %w", err)
@@ -68,7 +74,10 @@ func (r *Repository) GetByID(ctx context.Context, id string) (*Token, error) {
 	return &t, nil
 }
 
-func (r *Repository) GetByManageID(ctx context.Context, manageID string) (*Token, error) {
+func (r *Repository) GetByManageID(
+	ctx context.Context,
+	manageID string,
+) (*Token, error) {
 	var t Token
 	q := `SELECT ` + selectColumns + ` FROM tokens WHERE manage_id = $1`
 	err := r.db.GetContext(ctx, &t, q, manageID)
@@ -81,7 +90,10 @@ func (r *Repository) GetByManageID(ctx context.Context, manageID string) (*Token
 	return &t, nil
 }
 
-func (r *Repository) DeleteByManageID(ctx context.Context, manageID string) error {
+func (r *Repository) DeleteByManageID(
+	ctx context.Context,
+	manageID string,
+) error {
 	res, err := r.db.ExecContext(ctx,
 		`DELETE FROM tokens WHERE manage_id = $1`, manageID)
 	if err != nil {
@@ -97,7 +109,10 @@ func (r *Repository) DeleteByManageID(ctx context.Context, manageID string) erro
 	return nil
 }
 
-func (r *Repository) IncrementTriggerCount(ctx context.Context, id string) error {
+func (r *Repository) IncrementTriggerCount(
+	ctx context.Context,
+	id string,
+) error {
 	_, err := r.db.ExecContext(ctx, `
         UPDATE tokens
            SET trigger_count = trigger_count + 1,
@@ -109,7 +124,11 @@ func (r *Repository) IncrementTriggerCount(ctx context.Context, id string) error
 	return nil
 }
 
-func (r *Repository) SetEnabled(ctx context.Context, id string, enabled bool) error {
+func (r *Repository) SetEnabled(
+	ctx context.Context,
+	id string,
+	enabled bool,
+) error {
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE tokens SET enabled = $2 WHERE id = $1`, id, enabled)
 	if err != nil {
@@ -130,7 +149,10 @@ type ListOptions struct {
 	Offset int
 }
 
-func (r *Repository) ListAll(ctx context.Context, opts ListOptions) ([]Token, error) {
+func (r *Repository) ListAll(
+	ctx context.Context,
+	opts ListOptions,
+) ([]Token, error) {
 	if opts.Limit <= 0 {
 		opts.Limit = defaultListLimit
 	}
@@ -138,7 +160,13 @@ func (r *Repository) ListAll(ctx context.Context, opts ListOptions) ([]Token, er
             ORDER BY created_at DESC
             LIMIT $1 OFFSET $2`
 	var tokens []Token
-	if err := r.db.SelectContext(ctx, &tokens, q, opts.Limit, opts.Offset); err != nil {
+	if err := r.db.SelectContext(
+		ctx,
+		&tokens,
+		q,
+		opts.Limit,
+		opts.Offset,
+	); err != nil {
 		return nil, fmt.Errorf("list all tokens: %w", err)
 	}
 	return tokens, nil
@@ -146,7 +174,11 @@ func (r *Repository) ListAll(ctx context.Context, opts ListOptions) ([]Token, er
 
 func (r *Repository) CountAll(ctx context.Context) (int64, error) {
 	var n int64
-	if err := r.db.GetContext(ctx, &n, `SELECT COUNT(*) FROM tokens`); err != nil {
+	if err := r.db.GetContext(
+		ctx,
+		&n,
+		`SELECT COUNT(*) FROM tokens`,
+	); err != nil {
 		return 0, fmt.Errorf("count tokens: %w", err)
 	}
 	return n, nil
