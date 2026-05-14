@@ -27,6 +27,11 @@ type Config struct {
 	Turnstile TurnstileConfig `koanf:"turnstile"`
 	MySQL     MySQLConfig     `koanf:"mysql"`
 	Notify    NotifyConfig    `koanf:"notify"`
+	Operator  OperatorConfig  `koanf:"operator"`
+}
+
+type OperatorConfig struct {
+	Token string `koanf:"token"`
 }
 
 type NotifyConfig struct {
@@ -255,6 +260,8 @@ func loadDefaults(k *koanf.Koanf) error {
 		"notify.webhook_hmac_secret": "",
 		"notify.telegram_api_base":   "https://api.telegram.org",
 		"notify.fingerprint_window":  "5m",
+
+		"operator.token": "",
 	}
 
 	for key, value := range defaults {
@@ -305,6 +312,7 @@ var envKeyMap = map[string]string{
 	"WEBHOOK_HMAC_SECRET":          "notify.webhook_hmac_secret",
 	"NOTIFY_TELEGRAM_API_BASE":     "notify.telegram_api_base",
 	"NOTIFY_FINGERPRINT_WINDOW":    "notify.fingerprint_window",
+	"OPERATOR_TOKEN":               "operator.token",
 }
 
 func envKeyReplacer(s string) string {
