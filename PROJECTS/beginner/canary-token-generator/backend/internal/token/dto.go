@@ -6,6 +6,8 @@ package token
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/CarterPerez-dev/cybersecurity-projects/canary-token-generator/backend/internal/event"
 )
 
 type CreateRequest struct {
@@ -51,5 +53,46 @@ func (t *Token) ToResponse(triggerURL, manageURL string) Response {
 		TriggerURL:    triggerURL,
 		ManageURL:     manageURL,
 		Metadata:      t.Metadata,
+	}
+}
+
+type ManageTokenView struct {
+	ID            string       `json:"id"`
+	Type          Type         `json:"type"`
+	Memo          string       `json:"memo"`
+	Filename      *string      `json:"filename"`
+	AlertChannel  AlertChannel `json:"alert_channel"`
+	CreatedAt     time.Time    `json:"created_at"`
+	TriggerCount  int64        `json:"trigger_count"`
+	LastTriggered *time.Time   `json:"last_triggered"`
+	Enabled       bool         `json:"enabled"`
+	TriggerURL    string       `json:"trigger_url"`
+}
+
+type ManagePage struct {
+	NextCursor string `json:"next_cursor"`
+	HasMore    bool   `json:"has_more"`
+}
+
+type ManageResponse struct {
+	Token                ManageTokenView  `json:"token"`
+	Events               []event.Response `json:"events"`
+	EventsTotal          int64            `json:"events_total"`
+	EventsSilencedActive int64            `json:"events_silenced_active"`
+	Page                 ManagePage       `json:"page"`
+}
+
+func (t *Token) ToManageView(triggerURL string) ManageTokenView {
+	return ManageTokenView{
+		ID:            t.ID,
+		Type:          t.Type,
+		Memo:          t.Memo,
+		Filename:      t.Filename,
+		AlertChannel:  t.AlertChannel,
+		CreatedAt:     t.CreatedAt,
+		TriggerCount:  t.TriggerCount,
+		LastTriggered: t.LastTriggered,
+		Enabled:       t.Enabled,
+		TriggerURL:    triggerURL,
 	}
 }
