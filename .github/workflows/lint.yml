@@ -276,7 +276,9 @@ jobs:
 
     - name: Build ameba binary
       if: matrix.type == 'crystal'
-      run: crystal build lib/ameba/bin/ameba.cr -o bin/ameba
+      run: |
+        mkdir -p bin
+        crystal build lib/ameba/bin/ameba.cr -o bin/ameba
 
     # V (Vlang) Setup (no check-latest — master drift breaks fmt parity)
     - name: Install V
