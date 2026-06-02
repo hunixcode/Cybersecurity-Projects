@@ -81,7 +81,7 @@ check_just() {
 
 build_module() {
     info "Building the Cryptoki module (ReleaseSafe)..."
-    zig build
+    zig build --release=safe
     local so
     so=$(find zig-out/lib -name 'libhsm.so.*' -type f | head -1)
     [ -n "$so" ] || fail "Build produced no libhsm.so"
@@ -90,14 +90,14 @@ build_module() {
 
 run_tests() {
     info "Running ABI cross-check and unit tests..."
-    if zig build test >/dev/null 2>&1; then
+    if zig build test --release=safe >/dev/null 2>&1; then
         ok "All tests passed (ck.zig matches OASIS v2.40 headers)"
     else
         fail "Tests failed. Run 'zig build test --summary all' for details."
     fi
 
     info "Running the dlopen smoke test..."
-    if zig build smoke 2>&1 | grep -q "smoke: OK"; then
+    if zig build smoke --release=safe 2>&1 | grep -q "smoke: OK"; then
         ok "Smoke test passed (module loads and drives the ABI)"
     else
         fail "Smoke test failed. Run 'zig build smoke' for details."
